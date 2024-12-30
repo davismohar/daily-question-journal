@@ -1,0 +1,1 @@
+web: cd HelloWorldApp/bin/publish/net9.0/; ./HelloWorldApp --urls http://*:$PORT
