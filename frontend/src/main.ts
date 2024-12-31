@@ -12,7 +12,7 @@ app.use(router).use(
     domain: "dev-spr842pm040mf5yw.us.auth0.com",
     clientId: "XagUMrspFoeqyLODCejxdy2aWU39DfeB",
     authorizationParams: {
-      redirect_uri: window.location.origin + "/auth/callback",
+      redirect_uri: import.meta.env.VITE_BASE_URL + "/auth/callback",
       audience: "https/dailyjournal",
     },
   })
