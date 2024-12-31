@@ -219,7 +219,7 @@ let insertUser (connection: Sql.SqlProps) (user: UserRegistrationRequest) : User
         connection
         |> Sql.query "SELECT id, subject, email, given_name, name, picture, nickname FROM users WHERE email = @email"
         |> Sql.parameters [ "email", Sql.string user.email ]
-        |> Sql.executeRow (fun read ->
+        |> Sql.execute (fun read ->
             { id = read.uuid "id"
               subject = read.string "subject"
               email = read.string "email"
@@ -227,7 +227,7 @@ let insertUser (connection: Sql.SqlProps) (user: UserRegistrationRequest) : User
               name = read.string "name"
               picture = read.string "picture"
               nickname = read.string "nickname" })
-        |> Option.ofObj
+        |> List.tryHead
 
     match existingUser with
     | Some user -> user // Return existing user if found
