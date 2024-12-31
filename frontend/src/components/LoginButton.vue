@@ -6,7 +6,7 @@ const auth0 = useAuth0();
 const handleLogin = () => {
   auth0.loginWithRedirect({
     authorizationParams: {
-      redirect_uri: import.meta.env.VITE_API_URL + "/auth/callback",
+      redirect_uri: import.meta.env.VITE_BASE_URL + "/auth/callback",
     },
   });
 };
