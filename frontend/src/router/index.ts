@@ -5,7 +5,7 @@ import QuestionEditView from "../views/QuestionEditView.vue";
 import AuthCallbackView from "../views/AuthCallbackView.vue";
 import HomeView from "../views/HomeView.vue";
 const router = createRouter({
-  history: createWebHistory(import.meta.env.VITE_BASE_URL),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
       path: "/",
