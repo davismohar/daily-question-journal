@@ -39,7 +39,8 @@ jobs:
         run: npm ci
         working-directory: frontend/
       - name: Build
-        run: npm run build
+        # stupid hack to make SPA work on GH Pages
+        run: npm run build && cp ./dist/index.html ./dist/404.html
         working-directory: frontend/
       - name: Setup Pages
         uses: actions/configure-pages@v4
