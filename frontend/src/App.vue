@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from "vue-router";
-import HelloWorld from "./components/HelloWorld.vue";
 import LoginButton from "./components/LoginButton.vue";
 import LogoutButton from "./components/LogoutButton.vue";
 import { useAuth0 } from "@auth0/auth0-vue";
@@ -13,7 +12,7 @@ const isAuthenticated = computed(() => auth0.isAuthenticated);
   <img
     alt="Vue logo"
     class="logo"
-    src="@/assets/logo.svg"
+    src="./assets/logo.svg"
     width="125"
     height="125"
   />
