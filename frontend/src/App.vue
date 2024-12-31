@@ -18,6 +18,7 @@ const isAuthenticated = computed(() => auth0.isAuthenticated);
       <LogoutButton v-else />
     </nav>
   </div>
+<br>
 
   <RouterView />
 </template>
