@@ -18,7 +18,6 @@ export default defineConfig(({ command, mode }) => {
 			plugins: [
 				vue()
 			],
-			base: "/daily-question-journal/"
 		}
 	}
 })
