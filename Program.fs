@@ -17,8 +17,11 @@ open System.Security.Claims
 let corsPolicyName = "MyCorsPolicy"
 
 let corsPolicy (policyBuilder: CorsPolicyBuilder) =
-    // Note: This is a very lax setting, but a good fit for local development
-    policyBuilder.AllowAnyHeader().AllowAnyMethod().AllowAnyOrigin() |> ignore
+    policyBuilder
+        .AllowAnyHeader()
+        .AllowAnyMethod()
+        .WithOrigins("http://localhost:5173", "https://davismohar.github.io")
+    |> ignore
 
 let corsOptions (options: CorsOptions) =
     options.AddPolicy(corsPolicyName, corsPolicy)
