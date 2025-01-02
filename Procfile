@@ -1,1 +1,1 @@
-web: cd bin/publish/; ./HelloWorldApp --urls http://*:$PORT
+web: cd bin/publish/; ./DailyQuestionJournalApi --urls http://*:$PORT

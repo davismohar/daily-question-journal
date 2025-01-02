@@ -18,11 +18,9 @@ let corsPolicyName = "MyCorsPolicy"
 
 let corsPolicy (policyBuilder: CorsPolicyBuilder) =
     policyBuilder
-        .AllowAnyHeader()
         .AllowAnyMethod()
         .WithOrigins(
             "http://localhost:5173",
-            "https://davismohar.github.io",
             "https://daily-question-journal.vercel.app"
         )
     |> ignore
