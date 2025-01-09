@@ -15,8 +15,8 @@
 import { useAuth0 } from "@auth0/auth0-vue";
 import { ref, onMounted } from "vue";
 
-const answerSharingSubjects = ref([]);
-const newSubjectEmail = ref("");
+const answerSharingSubjects = ref<Array<string>>([]);
+const newSubjectEmail = ref<string>("");
 const auth0 = useAuth0();
 
 const fetchAnswerSharingSubjects = async () => {
