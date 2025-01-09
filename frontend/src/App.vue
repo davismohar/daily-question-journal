@@ -13,12 +13,14 @@ const isAuthenticated = computed(() => auth0.isAuthenticated);
     <nav>
       <RouterLink to="/">Home</RouterLink>
       <RouterLink to="/questions">Questions</RouterLink>
+      <RouterLink to="/answer_sharing">Answer Sharing</RouterLink>
       <RouterLink to="/about">About</RouterLink>
+
       <LoginButton v-if="!isAuthenticated.value" />
       <LogoutButton v-else />
     </nav>
   </div>
-<br>
+  <br>
 
   <RouterView />
 </template>

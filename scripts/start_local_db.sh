@@ -1,5 +1,6 @@
 #!/bin/bash
-
+docker stop local-postgres
+docker rm local-postgres
 # Start PostgreSQL container
 docker run --name local-postgres \
   -e POSTGRES_PASSWORD=postgres \

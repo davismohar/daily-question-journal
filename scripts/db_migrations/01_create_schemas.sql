@@ -50,7 +50,7 @@ answer_sharing_relationships (
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
   FOREIGN KEY (share_subject) references users(id),
-  FOREIGN KEY (share_granter) references users(id),
+  FOREIGN KEY (share_granter) references users(id)
 );
 create unique index if not exists idx_answer_sharing_relationships_hare_granter on answer_sharing_relationships (share_granter);
 

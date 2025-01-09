@@ -4,6 +4,7 @@ import QuestionWithAnswersView from "../views/QuestionWithAnswersView.vue";
 import QuestionEditView from "../views/QuestionEditView.vue";
 import AuthCallbackView from "../views/AuthCallbackView.vue";
 import HomeView from "../views/HomeView.vue";
+import AnswerSharingView from "../views/AnswerSharingView.vue";
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -31,6 +32,11 @@ const router = createRouter({
       path: "/auth/callback",
       name: "auth-callback",
       component: AuthCallbackView,
+    },
+    {
+      path: "/answer_sharing",
+      name: "answer-sharing",
+      component: AnswerSharingView,
     },
     {
       path: "/about",

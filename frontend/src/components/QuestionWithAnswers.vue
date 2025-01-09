@@ -90,7 +90,7 @@ onMounted(() => {
   <div v-else-if="question" class="question">
     <h1 class="content">{{ question.question }}</h1>
     <div v-for="answer in question.answers" :key="answer.id" class="answer">
-      <p class="date">{{ formatDate(answer.created_at) }}</p>
+      <p class="date">{{ formatDate(answer.created_at) }} {{answer.email}}</p>
       <p>{{ answer.answer }}</p>
     </div>
   </div>

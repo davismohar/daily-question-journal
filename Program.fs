@@ -6,23 +6,19 @@ open Falco.HostBuilder
 open Npgsql.FSharp
 open System
 open Microsoft.AspNetCore.Cors.Infrastructure
-open Microsoft.AspNetCore.Builder
 open Microsoft.Extensions.Logging
 open Microsoft.AspNetCore.Authentication.JwtBearer
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.IdentityModel.Tokens
 open System.Security.Claims
 
-
-let corsPolicyName = "MyCorsPolicy"
+let corsPolicyName = "corsPolicy"
 
 let corsPolicy (policyBuilder: CorsPolicyBuilder) =
     policyBuilder
         .AllowAnyMethod()
-        .WithOrigins(
-            "http://localhost:5173",
-            "https://daily-question-journal.vercel.app"
-        )
+        .WithHeaders("Authorization", "Content-Type", "Accept")
+        .WithOrigins("http://localhost:5173", "https://daily-question-journal.vercel.app")
     |> ignore
 
 let corsOptions (options: CorsOptions) =
@@ -39,6 +35,7 @@ type Question =
 type Answer =
     { id: Guid
       answer: string
+      email: string
       created_at: DateTime }
 
 type QuestionWithAnswers =
@@ -58,6 +55,7 @@ type UserRegistrationRequest =
 
 type User =
     { id: Guid
+      role: string
       subject: string
       email: string
       given_name: string
@@ -65,11 +63,38 @@ type User =
       picture: string
       nickname: string }
 
-let getUserIdBySubject (connection: Sql.SqlProps) (subject: string) : Guid =
+type AddAnswerSharingSubjectRequest = { subjectEmail: string }
+
+let getUserBySubject (connection: Sql.SqlProps) (subject: string) : User option =
     connection
-    |> Sql.query "SELECT id FROM users WHERE subject = @subject"
+    |> Sql.query
+        "SELECT id, role, subject, email, given_name, name, picture, nickname FROM users WHERE subject = @subject"
     |> Sql.parameters [ "subject", Sql.string subject ]
-    |> Sql.executeRow (fun read -> read.uuid "id")
+    |> Sql.executeRow (fun read ->
+        { id = read.uuid "id"
+          role = read.string "role"
+          subject = read.string "subject"
+          email = read.string "email"
+          given_name = read.string "given_name"
+          name = read.string "name"
+          picture = read.string "picture"
+          nickname = read.string "nickname" })
+    |> Option.ofObj
+
+let getUserByEmail (connection: Sql.SqlProps) (email: string) : User option =
+    connection
+    |> Sql.query "SELECT id, role, subject, email, given_name, name, picture, nickname FROM users WHERE email = @email"
+    |> Sql.parameters [ "email", Sql.string email ]
+    |> Sql.execute (fun read ->
+        { id = read.uuid "id"
+          role = read.string "role"
+          subject = read.string "subject"
+          email = read.string "email"
+          given_name = read.string "given_name"
+          name = read.string "name"
+          picture = read.string "picture"
+          nickname = read.string "nickname" })
+    |> List.tryHead
 
 let getQuestionByMonthAndDay (connection: Sql.SqlProps) (month: int) (day: int) : Question option =
     connection
@@ -106,13 +131,21 @@ type QuestionRequest = { question: string }
 
 type AnswerRequest = { answer: string }
 
+let isAdmin (connection: Sql.SqlProps) (subject: string) : bool =
+    match getUserBySubject connection subject with
+    | Some user -> user.role = "admin"
+    | None -> false
+
 let createQuestion (connection: Sql.SqlProps) (question: QuestionRequest) =
     insertQuestion connection question.question
 
-let handlePostQuestion (connection: Sql.SqlProps) =
-    Request.mapJson (fun question ->
-        let newQuestion = createQuestion connection question
-        Response.ofJson newQuestion)
+let handlePostQuestion (connection: Sql.SqlProps) (subject: string) =
+    if (isAdmin connection subject) then
+        Request.mapJson (fun question ->
+            let newQuestion = createQuestion connection question
+            Response.ofJson newQuestion)
+    else
+        Response.withStatusCode 401 >> Response.ofPlainText "Unauthorized"
 
 let getQuestionById (connection: Sql.SqlProps) (id: Guid) : Question option =
     connection
@@ -125,21 +158,37 @@ let getQuestionById (connection: Sql.SqlProps) (id: Guid) : Question option =
           month = read.int "month_of_year" })
     |> Option.ofObj
 
-let getAnswersByQuestionId (connection: Sql.SqlProps) (id: Guid) : Answer list =
-    connection
-    |> Sql.query "SELECT id, answer, created_at FROM answers WHERE question_id = @id"
-    |> Sql.parameters [ "id", Sql.uuid id ]
-    |> Sql.execute (fun read ->
-        { id = read.uuid "id"
-          answer = read.string "answer"
-          created_at = read.dateTime "created_at" })
-
 let getAnswersByQuestionIdAndUserId (connection: Sql.SqlProps) (id: Guid) (userId: Guid) : Answer list =
     connection
-    |> Sql.query "SELECT id, answer, created_at FROM answers WHERE question_id = @id AND user_id = @userId"
+    |> Sql.query
+        """
+    SELECT a.id, a.answer, u.email, a.created_at
+    FROM answers a 
+    LEFT JOIN users u on a.user_id = u.id
+    WHERE question_id = @id 
+    AND (user_id = @userId) OR (user_id IN (SELECT share_subject FROM answer_sharing_relationships WHERE share_granter = @userId))
+    """
     |> Sql.parameters [ "id", Sql.uuid id; "userId", Sql.uuid userId ]
     |> Sql.execute (fun read ->
         { id = read.uuid "id"
+          email = read.string "email"
+          answer = read.string "answer"
+          created_at = read.dateTime "created_at" })
+
+let getAnswersByQuestionIdAndUserIdList (connection: Sql.SqlProps) (id: Guid) (userIds: Guid list) : Answer list =
+    connection
+    |> Sql.query
+        """
+    SELECT a.id, a.answer, u.email, a.created_at
+    FROM answers a 
+    LEFT JOIN users u on a.user_id = u.id
+    WHERE 
+    question_id = @id 
+    AND user_id IN @userIds"""
+    |> Sql.parameters [ "id", Sql.uuid id; "userIds", Sql.uuidArray (userIds |> Array.ofList) ]
+    |> Sql.execute (fun read ->
+        { id = read.uuid "id"
+          email = read.string "email"
           answer = read.string "answer"
           created_at = read.dateTime "created_at" })
 
@@ -162,52 +211,50 @@ let deleteQuestionById (connection: Sql.SqlProps) (id: Guid) : bool =
     |> Sql.executeNonQuery
     |> fun rowsAffected -> rowsAffected > 0
 
-let handleGetQuestionWithAnswers (connection: Sql.SqlProps) (questionId: string) (subject: string) : HttpHandler =
-    match Guid.TryParse questionId with
-    | true, guid ->
-        let question = getQuestionById connection guid
-        let userId = getUserIdBySubject connection subject
-        let answers = getAnswersByQuestionIdAndUserId connection guid userId
 
-        match question with
-        | Some q ->
-            Response.ofJson
-                { id = q.id
-                  question = q.question
-                  day = q.day
-                  month = q.month
-                  answers = answers }
-        | None -> Response.withStatusCode 404 >> Response.ofPlainText "Question not found"
-    | false, _ -> Response.withStatusCode 400 >> Response.ofPlainText "Invalid ID format"
 
-let handleDeleteQuestion (connection: Sql.SqlProps) (id: string) : HttpHandler =
-    match Guid.TryParse id with
-    | true, guid ->
-        if deleteQuestionById connection guid then
-            Response.withStatusCode 204 >> Response.ofEmpty
-        else
-            Response.withStatusCode 404 >> Response.ofPlainText "Question not found"
-    | false, _ -> Response.withStatusCode 400 >> Response.ofPlainText "Invalid ID format"
+let handleDeleteQuestion (connection: Sql.SqlProps) (id: string) (subject: string) : HttpHandler =
+    if not (isAdmin connection subject) then
+        Response.withStatusCode 401 >> Response.ofPlainText "Unauthorized"
+    else
+        match Guid.TryParse id with
+        | true, guid ->
+            if deleteQuestionById connection guid then
+                Response.withStatusCode 204 >> Response.ofEmpty
+            else
+                Response.withStatusCode 404 >> Response.ofPlainText "Question not found"
+        | false, _ -> Response.withStatusCode 400 >> Response.ofPlainText "Invalid ID format"
 
 let insertAnswer (connection: Sql.SqlProps) (questionId: Guid) (answer: AnswerRequest) (userId: Guid) : Answer =
     connection
     |> Sql.query
-        "INSERT INTO answers (question_id, answer, user_id) VALUES (@questionId, @answer, @userId) RETURNING id, answer, created_at"
+        """
+        with inserted_answer as (
+            INSERT INTO answers (question_id, user_id, answer) VALUES (@questionId, @userId, @answer) RETURNING *
+        )
+        SELECT a.id, a.answer, u.email, a.created_at
+        FROM inserted_answer a
+        LEFT JOIN users u on a.user_id = u.id
+        ;
+        """
     |> Sql.parameters
         [ "questionId", Sql.uuid questionId
           "answer", Sql.string answer.answer
           "userId", Sql.uuid userId ]
     |> Sql.executeRow (fun read ->
         { id = read.uuid "id"
+          email = read.string "email"
           answer = read.string "answer"
           created_at = read.dateTime "created_at" })
-
 
 
 let handlePostAnswer (connection: Sql.SqlProps) (questionId: string) (subject: string) : HttpHandler =
     Request.mapJson (fun answer ->
         let questionId = Guid.Parse questionId
-        let userId = getUserIdBySubject connection subject
+
+        let userId =
+            getUserBySubject connection subject |> Option.get |> (fun user -> user.id)
+
         let newAnswer = insertAnswer connection questionId answer userId
         Response.ofJson newAnswer)
 
@@ -219,6 +266,7 @@ let insertUser (connection: Sql.SqlProps) (user: UserRegistrationRequest) : User
         |> Sql.parameters [ "email", Sql.string user.email ]
         |> Sql.execute (fun read ->
             { id = read.uuid "id"
+              role = read.string "role"
               subject = read.string "subject"
               email = read.string "email"
               given_name = read.string "given_name"
@@ -232,9 +280,10 @@ let insertUser (connection: Sql.SqlProps) (user: UserRegistrationRequest) : User
     | None -> // Insert new user if not found
         connection
         |> Sql.query
-            "INSERT INTO users (subject, email, given_name, name, picture, nickname) VALUES (@subject, @email, @given_name, @name, @picture, @nickname) RETURNING id, subject, email, given_name, name, picture, nickname"
+            "INSERT INTO users (subject, role,  email, given_name, name, picture, nickname) VALUES (@subject, @role, @email, @given_name, @name, @picture, @nickname) RETURNING id, subject, role, email, given_name, name, picture, nickname"
         |> Sql.parameters
             [ "subject", Sql.string user.subject
+              "role", Sql.string "user"
               "email", Sql.string user.email
               "given_name", Sql.string user.given_name
               "name", Sql.string user.name
@@ -243,6 +292,7 @@ let insertUser (connection: Sql.SqlProps) (user: UserRegistrationRequest) : User
         |> Sql.executeRow (fun read ->
             { id = read.uuid "id"
               subject = read.string "subject"
+              role = "user"
               email = read.string "email"
               given_name = read.string "given_name"
               name = read.string "name"
@@ -266,6 +316,98 @@ let handlePostUser (connection: Sql.SqlProps) : HttpHandler =
             Response.withStatusCode 400
             >> Response.ofPlainText "Invalid user registration request")
 
+let insertAnswerSharingRelationship (connection: Sql.SqlProps) (granterUserId: Guid) (subjectUserId: Guid) =
+    connection
+    |> Sql.query
+        "INSERT INTO answer_sharing_relationships (share_granter, share_subject) VALUES (@granterUserId, @subjectUserId)"
+    |> Sql.parameters
+        [ "granterUserId", Sql.uuid granterUserId
+          "subjectUserId", Sql.uuid subjectUserId ]
+    |> Sql.executeNonQuery
+
+let getAnswerSharingRelationships (connection: Sql.SqlProps) (granterUserId: Guid) : User list =
+    connection
+    |> Sql.query
+        """
+    SELECT u.*
+    FROM answer_sharing_relationships asr
+    INNER JOIN users u ON asr.share_subject = u.id
+    WHERE share_granter = @granterUserId
+    """
+    |> Sql.parameters [ "granterUserId", Sql.uuid granterUserId ]
+    |> Sql.execute (fun read ->
+        { id = read.uuid "id"
+          subject = read.string "subject"
+          role = "user"
+          email = read.string "email"
+          given_name = read.string "given_name"
+          name = read.string "name"
+          picture = read.string "picture"
+          nickname = read.string "nickname" })
+
+
+let handlePutSharedAnswers (connection: Sql.SqlProps) (subject: string) : HttpHandler =
+    Request.mapJson (fun request ->
+        let subjectEmail = request.subjectEmail
+        printfn "SubjectEmail: %A" subjectEmail
+
+        let granterUser = getUserBySubject connection subject |> Option.get
+        let subjectUser = getUserByEmail connection subjectEmail
+
+        match subjectUser with
+        | Some subjectUser ->
+            printfn "Subject: %A, SubjectEmail: %A" granterUser.id subjectUser.id
+
+            insertAnswerSharingRelationship connection granterUser.id subjectUser.id
+            |> ignore
+
+            let answerSharingRelationships =
+                getAnswerSharingRelationships connection granterUser.id
+
+            let sharedEmails = answerSharingRelationships |> List.map (fun u -> u.email)
+
+            Response.ofJson sharedEmails
+        | None -> Response.withStatusCode 404 >> Response.ofPlainText "Subject not found")
+
+
+let handleGetQuestionWithAnswers (connection: Sql.SqlProps) (questionId: string) (subject: string) : HttpHandler =
+    match Guid.TryParse questionId with
+    | true, guid ->
+        let question = getQuestionById connection guid
+
+        match getUserBySubject connection subject with
+        | Some user ->
+            let userId = user.id
+
+            // let sharedUserIds =
+            //     getAnswerSharingRelationships connection userId |> List.map (fun u -> u.id)
+
+            let answers = getAnswersByQuestionIdAndUserId connection guid userId
+
+            match question with
+            | Some q ->
+                Response.ofJson
+                    { id = q.id
+                      question = q.question
+                      day = q.day
+                      month = q.month
+                      answers = answers }
+            | None -> Response.withStatusCode 404 >> Response.ofPlainText "Question not found"
+        | None -> Response.withStatusCode 404 >> Response.ofPlainText "User not found"
+    | false, _ -> Response.withStatusCode 400 >> Response.ofPlainText "Invalid ID format"
+
+
+
+
+let getSharedEmailsByUserEmail connection userEmail =
+    // Implement the database query to get the shared emails
+    // This is a placeholder implementation
+    let query = "SELECT shared_email FROM shared_answers WHERE user_email = @userEmail"
+
+    connection
+    |> Sql.query query
+    |> Sql.parameters [ "userEmail", Sql.string userEmail ]
+    |> Sql.execute (fun read -> read.string "shared_email")
 
 let configureLogging (log: ILoggingBuilder) =
     log.ClearProviders() |> ignore
@@ -276,16 +418,8 @@ let configureLogging (log: ILoggingBuilder) =
 module AuthConfig =
     let authority = "https://dev-spr842pm040mf5yw.us.auth0.com/"
     let audience = "https/dailyjournal"
-
     let writeAnswersPolicy = "write:answers"
 
-// module Auth =
-//     let hasScope (scope : string) (next : HttpHandler) : HttpHandler =
-//         Request.ifAuthenticatedWithScope AuthConfig.authority scope next ErrorPages.forbidden
-
-// ------------
-// Register services
-// ------------
 let authService (svc: IServiceCollection) =
     let createTokenValidationParameters () =
         let tvp = new TokenValidationParameters()
@@ -303,6 +437,7 @@ let authService (svc: IServiceCollection) =
     |> ignore
 
     svc
+
 
 [<EntryPoint>]
 let main args =
@@ -324,7 +459,12 @@ let main args =
                   | Some month, Some day ->
                       Response.ofJson (getQuestionByMonthAndDay (Sql.connect connectionString) month day) ctx
                   | _ -> Response.ofJson (getAllQuestions (Sql.connect connectionString)) ctx)
-              post "/api/questions" (handlePostQuestion (Sql.connect connectionString))
+              post "/api/questions" (fun ctx ->
+                  Request.ifAuthenticated
+                      (fun authCtx ->
+                          handlePostQuestion (Sql.connect connectionString) authCtx.User.Identity.Name authCtx)
+                      (Response.withStatusCode 401 >> Response.ofPlainText "not authenticated")
+                      ctx)
               get "/api/questions/{id}" (fun ctx ->
                   let route = Request.getRoute ctx
                   let id = route.GetString "id"
@@ -332,14 +472,23 @@ let main args =
               delete "/api/questions/{id}" (fun ctx ->
                   let route = Request.getRoute ctx
                   let id = route.GetString "id"
-                  (handleDeleteQuestion (Sql.connect connectionString) id) ctx)
+
+                  Request.ifAuthenticated
+                      (fun authCtx ->
+                          (handleDeleteQuestion (Sql.connect connectionString) id authCtx.User.Identity.Name) authCtx)
+                      (Response.withStatusCode 401 >> Response.ofPlainText "not authenticated")
+                      ctx)
               get "/api/questions/{id}/answers" (fun ctx ->
                   let route = Request.getRoute ctx
                   let id = route.GetString "id"
 
                   Request.ifAuthenticated
-                      (fun ctx ->
-                          handleGetQuestionWithAnswers (Sql.connect connectionString) id ctx.User.Identity.Name ctx)
+                      (fun authCtx ->
+                          handleGetQuestionWithAnswers
+                              (Sql.connect connectionString)
+                              id
+                              authCtx.User.Identity.Name
+                              authCtx)
                       (Response.withStatusCode 401 >> Response.ofPlainText "not authenticated")
                       ctx)
               post "/api/questions/{id}/answers" (fun ctx ->
@@ -347,10 +496,37 @@ let main args =
                   let id = route.GetString "id"
 
                   Request.ifAuthenticated
-                      (fun ctx -> handlePostAnswer (Sql.connect connectionString) id ctx.User.Identity.Name ctx)
+                      (fun authCtx ->
+                          handlePostAnswer (Sql.connect connectionString) id authCtx.User.Identity.Name authCtx)
                       (Response.withStatusCode 401 >> Response.ofPlainText "not authenticated")
                       ctx)
-              post "/api/users" (handlePostUser (Sql.connect connectionString)) ]
+
+              post "/api/users" (handlePostUser (Sql.connect connectionString))
+
+              get "/api/shared_answers" (fun ctx ->
+                  Request.ifAuthenticated
+                      (fun authCtx ->
+                          let connection = Sql.connect connectionString
+                          let authedSubject = authCtx.User.Identity.Name
+
+                          let userId =
+                              getUserBySubject connection authedSubject |> Option.get |> (fun user -> user.id)
+
+                          let sharedEmails =
+                              getAnswerSharingRelationships connection userId |> List.map (fun u -> u.email)
+
+                          Response.ofJson sharedEmails authCtx)
+                      (Response.withStatusCode 401 >> Response.ofPlainText "not authenticated")
+                      ctx)
+
+              put "/api/shared_answers" (fun ctx ->
+                  let route = Request.getRoute ctx
+
+                  Request.ifAuthenticated
+                      (fun authCtx ->
+                          handlePutSharedAnswers (Sql.connect connectionString) authCtx.User.Identity.Name authCtx)
+                      (Response.withStatusCode 401 >> Response.ofPlainText "not authenticated")
+                      ctx) ]
     }
 
     0
