@@ -174,7 +174,11 @@ let getAnswersByQuestionIdAndUserId (connection: Sql.SqlProps) (id: Guid) (userI
     FROM answers a 
     LEFT JOIN users u on a.user_id = u.id
     WHERE question_id = @id 
-    AND (user_id = @userId) OR (user_id IN (SELECT share_subject FROM answer_sharing_relationships WHERE share_granter = @userId))
+    AND (
+        user_id = @userId) 
+        OR 
+        (user_id IN (SELECT share_subject FROM answer_sharing_relationships WHERE share_granter = @userId))
+        )
     order by a.created_at desc
     """
     |> Sql.parameters [ "id", Sql.uuid id; "userId", Sql.uuid userId ]
