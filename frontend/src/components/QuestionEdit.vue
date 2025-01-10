@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useAuth0 } from "@auth0/auth0-vue";
 
 interface Question {
   id: number;
@@ -9,9 +10,11 @@ interface Question {
 
 const route = useRoute();
 const question = ref<Question | null>(null);
+const questionText = ref("");
 const error = ref<string | null>(null);
-const answerText = ref("");
 const router = useRouter();
+const auth0 = useAuth0();
+
 const fetchQuestion = async () => {
   try {
     const response = await fetch(
@@ -23,8 +26,30 @@ const fetchQuestion = async () => {
       throw new Error("Failed to fetch question");
     }
     question.value = data;
+    questionText.value = data.question;
   } catch (err) {
     error.value = "Error loading question";
+    console.error(err);
+  }
+};
+
+const updateQuestion = async () => {
+  try {
+    let accessToken = await auth0.getAccessTokenSilently();
+    await fetch(
+      import.meta.env.VITE_API_URL + `/api/questions/${route.params.id}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          question: questionText.value,
+        }),
+      }
+    );
+  } catch (err) {
     console.error(err);
   }
 };
@@ -53,7 +78,10 @@ onMounted(() => {
     {{ error }}
   </div>
   <div v-else-if="question" class="question">
-    <h1 class="content">Question: {{ question.question }}</h1>
+    <form @submit.prevent="updateQuestion" class="question-form">
+      <input v-model="questionText" type="text" class="question-input" />
+      <button type="submit" @click.prevent="updateQuestion">Update</button>
+    </form>
   </div>
   <div v-else class="loading">Loading...</div>
   <button class="delete-button" @click="deleteQuestion">Delete</button>
@@ -64,6 +92,17 @@ onMounted(() => {
   max-width: 800px;
   margin: 0 auto;
   padding: 20px;
+}
+
+.question-input {
+  display: flex;
+  gap: 1rem;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  resize: vertical;
 }
 
 .content {

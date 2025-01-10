@@ -32,6 +32,8 @@ type Question =
       day: int
       month: int }
 
+type QuestionUpdateRequest = { question: string }
+
 type Answer =
     { id: Guid
       answer: string
@@ -110,7 +112,13 @@ let getQuestionByMonthAndDay (connection: Sql.SqlProps) (month: int) (day: int) 
 
 let getAllQuestions (connection: Sql.SqlProps) : Question list =
     connection
-    |> Sql.query "SELECT id, question, month_of_year, day_of_month FROM questions"
+    |> Sql.query
+        """
+    SELECT id, question, month_of_year, day_of_month 
+    FROM questions
+    ORDER BY month_of_year , day_of_month
+    LIMIT 500
+    """
     |> Sql.execute (fun read ->
         { id = read.uuid "id"
           question = read.string "question"
@@ -167,25 +175,9 @@ let getAnswersByQuestionIdAndUserId (connection: Sql.SqlProps) (id: Guid) (userI
     LEFT JOIN users u on a.user_id = u.id
     WHERE question_id = @id 
     AND (user_id = @userId) OR (user_id IN (SELECT share_subject FROM answer_sharing_relationships WHERE share_granter = @userId))
+    order by a.created_at desc
     """
     |> Sql.parameters [ "id", Sql.uuid id; "userId", Sql.uuid userId ]
-    |> Sql.execute (fun read ->
-        { id = read.uuid "id"
-          email = read.string "email"
-          answer = read.string "answer"
-          created_at = read.dateTime "created_at" })
-
-let getAnswersByQuestionIdAndUserIdList (connection: Sql.SqlProps) (id: Guid) (userIds: Guid list) : Answer list =
-    connection
-    |> Sql.query
-        """
-    SELECT a.id, a.answer, u.email, a.created_at
-    FROM answers a 
-    LEFT JOIN users u on a.user_id = u.id
-    WHERE 
-    question_id = @id 
-    AND user_id IN @userIds"""
-    |> Sql.parameters [ "id", Sql.uuid id; "userIds", Sql.uuidArray (userIds |> Array.ofList) ]
     |> Sql.execute (fun read ->
         { id = read.uuid "id"
           email = read.string "email"
@@ -257,6 +249,28 @@ let handlePostAnswer (connection: Sql.SqlProps) (questionId: string) (subject: s
 
         let newAnswer = insertAnswer connection questionId answer userId
         Response.ofJson newAnswer)
+
+let updateQuestion (connection: Sql.SqlProps) (questionId: Guid) (question: string) : Question =
+    connection
+    |> Sql.query
+        "UPDATE questions SET question = @question WHERE id = @id RETURNING id, question, day_of_month, month_of_year"
+    |> Sql.parameters [ "question", Sql.string question; "id", Sql.uuid questionId ]
+    |> Sql.executeRow (fun read ->
+        { id = read.uuid "id"
+          question = read.string "question"
+          day = read.int "day_of_month"
+          month = read.int "month_of_year" })
+
+let handlePutQuestion (connection: Sql.SqlProps) (questionId: string) (subject: string) : HttpHandler =
+    Request.mapJson (fun (questionUpdateRequst: QuestionUpdateRequest) ->
+        if (not (isAdmin connection subject)) then
+            Response.withStatusCode 401 >> Response.ofPlainText "Unauthorized"
+        else
+            printfn "QuestionId: %A" questionId
+            let questionId = Guid.Parse questionId
+
+            updateQuestion connection questionId questionUpdateRequst.question
+            |> Response.ofJson)
 
 let insertUser (connection: Sql.SqlProps) (user: UserRegistrationRequest) : User =
     // First check if user exists by email
@@ -396,9 +410,6 @@ let handleGetQuestionWithAnswers (connection: Sql.SqlProps) (questionId: string)
         | None -> Response.withStatusCode 404 >> Response.ofPlainText "User not found"
     | false, _ -> Response.withStatusCode 400 >> Response.ofPlainText "Invalid ID format"
 
-
-
-
 let getSharedEmailsByUserEmail connection userEmail =
     // Implement the database query to get the shared emails
     // This is a placeholder implementation
@@ -469,6 +480,15 @@ let main args =
                   let route = Request.getRoute ctx
                   let id = route.GetString "id"
                   (handleGetQuestion (Sql.connect connectionString) id) ctx)
+              put "/api/questions/{id}" (fun ctx ->
+                  let route = Request.getRoute ctx
+                  let id = route.GetString "id"
+
+                  Request.ifAuthenticated
+                      (fun authCtx ->
+                          (handlePutQuestion (Sql.connect connectionString) id authCtx.User.Identity.Name) authCtx)
+                      (Response.withStatusCode 401 >> Response.ofPlainText "not authenticated aaa")
+                      ctx)
               delete "/api/questions/{id}" (fun ctx ->
                   let route = Request.getRoute ctx
                   let id = route.GetString "id"

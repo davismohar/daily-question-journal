@@ -22,7 +22,7 @@ const auth0 = useAuth0();
 const fetchAnswerSharingSubjects = async () => {
     try {
         const token = await auth0.getAccessTokenSilently();
-        const response = await fetch('http://localhost:8080/api/shared_answers', {
+        const response = await fetch(import.meta.env.VITE_API_URL +'/api/shared_answers', {
             headers: {
                 Authorization: `Bearer ${token}`
             }
@@ -41,7 +41,7 @@ const fetchAnswerSharingSubjects = async () => {
 const addSubject = async () => {
     try {
         const token = await auth0.getAccessTokenSilently();
-        const response = await fetch('http://localhost:8080/api/shared_answers', {
+        const response = await fetch(import.meta.env.VITE_API_URL + '/api/shared_answers', {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
