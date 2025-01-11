@@ -175,7 +175,7 @@ let getAnswersByQuestionIdAndUserId (connection: Sql.SqlProps) (id: Guid) (userI
     LEFT JOIN users u on a.user_id = u.id
     WHERE question_id = @id 
     AND (
-        user_id = @userId) 
+        (user_id = @userId) 
         OR 
         (user_id IN (SELECT share_subject FROM answer_sharing_relationships WHERE share_granter = @userId))
         )
